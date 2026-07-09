@@ -64,12 +64,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const url = new URL(req.url, `http://localhost:${PORT}`);
-  const pathname = url.pathname;
+  const requrl = new URL(req.url, `http://localhost:${PORT}`);
+  const pathname = requrl.pathname;
 
   // GET /books
   if (req.method === "GET" && pathname === "/books") {
-    const search = url.searchParams.get("search");
+    const search = requrl.searchParams.get("search");
     sendJSON(res, 200, searchBooks(search || ""));
     return;
   }
