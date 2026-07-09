@@ -88,7 +88,12 @@ const server = http.createServer((req, res) => {
 });
 
 // 복사한 Connection String (비밀번호 부분 수정 필수)
-const dbURI = 'mongodb+srv://ojh0370_db_user:TYUN87e98Q@cluster0.euqlbay.mongodb.net/?appName=Cluster0';
+const dbURI = process.env.MONGODB_URI; 
+
+if (!dbURI) {
+  console.error("에러: MONGODB_URI 환경 변수가 설정되지 않았습니다.");
+  process.exit(1);
+}
 
 // 스키마 정의는 연결 전이라도 상관없지만, 연결 함수와 함께 관리하는 게 좋습니다.
 const robotSchema = new mongoose.Schema({
