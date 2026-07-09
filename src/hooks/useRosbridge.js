@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 const ROS_WS_URL = (() => {
   const explicit = import.meta.env.VITE_ROS_WS_URL;
   if (explicit) return explicit;
-  const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+  const apiBase = import.meta.env.VITE_API_BASE_URL || "https://what-small-smart-3.onrender.com";
   return apiBase.replace(/^http/, "ws").replace(/\/$/, "") + "/ros";
 })();
 
