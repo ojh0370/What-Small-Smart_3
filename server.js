@@ -12,6 +12,7 @@
  *
  * 앱의 src/api/bookService.js 가 이 서버(기본 http://localhost:3000)를 호출합니다.
  */
+import mongoose from 'mongoose';
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -86,7 +87,32 @@ const server = http.createServer((req, res) => {
   sendJSON(res, 404, { message: "알 수 없는 엔드포인트입니다." });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`📚 먹똑 도서 API 서버 실행 중: http://localhost:${PORT}`);
+// 복사한 Connection String (비밀번호 부분 수정 필수)
+const dbURI = 'mongodb+srv://ojh0370_db_user:TYUN87e98Q@cluster0.euqlbay.mongodb.net/?appName=Cluster0';
+
+// 스키마 정의는 연결 전이라도 상관없지만, 연결 함수와 함께 관리하는 게 좋습니다.
+const robotSchema = new mongoose.Schema({
+  name: String,
+  status: String,
+  lastUpdated: { type: Date, default: Date.now }
 });
+const Robot = mongoose.model('Robot', robotSchema);
+
+// 서버 실행 함수를 비동기로 감싸기
+async function startServer() {
+  try {
+    await mongoose.connect(dbURI);
+    console.log('MongoDB 연결 성공!');
+
+    // 서버 시작
+    const PORT = process.env.PORT || 3000;
+    server.listen(PORT, () => {
+      console.log(`📚 먹똑 도서 API 서버 실행 중: http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error('MongoDB 연결 실패:', err);
+  }
+}
+
+// 3. 서버 실행
+startServer();
