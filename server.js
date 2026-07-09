@@ -17,6 +17,8 @@ import http from "node:http";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+const PORT = process.env.PORT || 3000;
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 도서 데이터 (book_id 0001~0008)
@@ -56,6 +58,7 @@ function searchBooks(keyword) {
 }
 
 const server = http.createServer((req, res) => {
+  const url = new URL(req.url, `http://localhost:${PORT}`);
   if (req.method === "OPTIONS") {
     sendJSON(res, 200, {});
     return;
@@ -110,7 +113,6 @@ async function startServer() {
     console.log('MongoDB 연결 성공!');
 
     // 서버 시작
-    const PORT = process.env.PORT || 3000;
     server.listen(PORT, () => {
       console.log(`📚 먹똑 도서 API 서버 실행 중: http://localhost:${PORT}`);
     });
