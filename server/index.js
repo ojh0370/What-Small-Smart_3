@@ -136,7 +136,7 @@ async function startServer() {
         try {
           const parsed = JSON.parse(str);
           console.log(`[rosbridge→서버] op=${parsed.op} topic=${parsed.topic} data=${parsed.msg?.data || ""}`);
-          if (parsed.op === "topic" && parsed.topic === "/app/nav_status") {
+          if ((parsed.op === "topic" || parsed.op === "publish") && parsed.topic === "/app/nav_status") {
             const statusText = parsed.msg?.data;
             if (statusText) saveRobotStatus(statusText);
           }

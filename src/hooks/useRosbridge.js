@@ -6,9 +6,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 const ROS_WS_URL = (() => {
   const explicit = import.meta.env.VITE_ROS_WS_URL;
   if (explicit) return explicit;
-  const apiBase = import.meta.env.VITE_API_BASE_URL || "https://what-small-smart-3.onrender.com";
+  const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
   return apiBase.replace(/^http/, "ws").replace(/\/$/, "") + "/ros";
 })();
+console.log("[rosbridge] 연결 대상 URL:", ROS_WS_URL, "| VITE_API_BASE_URL:", import.meta.env.VITE_API_BASE_URL);
 
 // /app/nav_status 에서 오는 상태 코드 목록
 const VALID_STATUSES = ["idle", "navigating", "succeeded", "failed", "canceled", "busy", "not_found", "invalid_request"];
@@ -47,11 +48,16 @@ export function useRosbridge() {
     ws.current = new WebSocket(ROS_WS_URL);
 
     ws.current.onopen = () => {
+      console.log("[rosbridge] WebSocket 연결됨:", ROS_WS_URL);
       setConnStatus("connected");
       subscribeStatus();
     };
-    ws.current.onerror = () => setConnStatus("error");
+    ws.current.onerror = (e) => {
+      console.error("[rosbridge] WebSocket 에러:", ROS_WS_URL, e);
+      setConnStatus("error");
+    };
     ws.current.onclose = () => {
+      console.warn("[rosbridge] WebSocket 연결 종료:", ROS_WS_URL);
       setConnStatus("disconnected");
       subscribed.current = false;
       reconnectTimer.current = setTimeout(connect, 3000);
@@ -59,7 +65,8 @@ export function useRosbridge() {
     ws.current.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.op === "topic" && msg.topic === "/app/nav_status") {
+        console.log("[rosbridge] 메시지 수신:", msg.op, msg.topic, msg.msg?.data);
+        if ((msg.op === "topic" || msg.op === "publish") && msg.topic === "/app/nav_status") {
           const raw = (msg.msg?.data || "").trim();
           // "navigating:0001" → status, book_id 분리
           const [code, bookId] = raw.split(":");
