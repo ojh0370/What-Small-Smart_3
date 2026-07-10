@@ -1,66 +1,121 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 
-// 브라우저 내장 Web Speech API (Chrome/Edge/Safari 지원)
-// 외부 모델 없이 브라우저 자체 음성인식 사용
-export function useVoiceSearch({ lang = "ko-KR", onResult } = {}) {
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://what-small-smart-3.onrender.com";
+const TRAILING_REQUEST_PATTERN = /\s?(찾아줘|검색해줘|알려줘|보여줘)[.!?~]*$/;
+
+export function useVoiceSearch({ lang = "ko-KR" } = {}) {
   const [listening, setListening] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState(null);
-  const recognitionRef = useRef(null);
+  const retriedRef = useRef(false);
 
-  // 브라우저 지원 여부 확인
   const supported =
     typeof window !== "undefined" &&
-    (window.SpeechRecognition || window.webkitSpeechRecognition);
+    !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
-  useEffect(() => {
-    if (!supported) return;
+  const runRecognition = useCallback(
+    (onResult) => {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SR();
+      recognition.lang = lang;
+      recognition.interimResults = false;
+      recognition.continuous = false;
 
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SR();
-    recognition.lang = lang;
-    recognition.interimResults = true;
-    recognition.continuous = false;
+      recognition.onresult = async (event) => {
+        const transcript = event.results[0][0].transcript.trim();
+        setListening(false);
+        if (!transcript) return;
 
-    recognition.onresult = (event) => {
-      let transcript = "";
-      for (let i = 0; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript;
+        const quickKeyword = transcript.replace(TRAILING_REQUEST_PATTERN, "").trim();
+        const isShort = quickKeyword.split(/\s+/).length <= 2;
+
+        if (isShort) {
+          onResult(quickKeyword);
+          return;
+        }
+
+        setProcessing(true);
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 6000);
+          const res = await fetch(`${API_BASE}/extract-keyword`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: transcript }),
+            signal: controller.signal,
+          });
+          clearTimeout(timer);
+          if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
+          const data = await res.json();
+          onResult((data.keyword || quickKeyword).trim());
+        } catch (err) {
+          console.warn("키워드 추출 실패, 원문 폴백:", err.message);
+          onResult(quickKeyword);
+        } finally {
+          setProcessing(false);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        // no-speech는 첫 시도에서 흔히 발생 (마이크 초기화 지연) → 1회 자동 재시도
+        if (event.error === "no-speech" && !retriedRef.current) {
+          retriedRef.current = true;
+          try {
+            recognition.start();
+            return; // 에러 상태로 안 내려가고 재시도
+          } catch {
+            // 재시도 실패 시 아래로 폴스루
+          }
+        }
+
+        setListening(false);
+        retriedRef.current = false;
+
+        const messages = {
+          "no-speech": "음성이 감지되지 않았어요. 마이크에 가까이 대고 다시 눌러 바로 말씀해주세요.",
+          "not-allowed": "마이크 권한이 차단되어 있어요. 브라우저 설정에서 마이크 권한을 허용해주세요.",
+          "audio-capture": "마이크를 찾을 수 없어요. 기기의 마이크 연결을 확인해주세요.",
+          network: "네트워크 오류로 음성 인식에 실패했어요. 인터넷 연결을 확인해주세요.",
+        };
+        setError(messages[event.error] || "음성 인식 중 오류가 발생했어요.");
+      };
+
+      recognition.onend = () => setListening(false);
+
+      recognition.start();
+    },
+    [lang]
+  );
+
+  const start = useCallback(
+    async (onResult) => {
+      if (!supported) {
+        setError("이 브라우저는 음성 인식을 지원하지 않습니다. Chrome/Edge/Safari 앱에서 직접 열어주세요.");
+        return;
       }
-      if (onResult) onResult(transcript);
-    };
 
-    recognition.onerror = (event) => {
-      setError(event.error);
-      setListening(false);
-    };
+      setError(null);
+      retriedRef.current = false;
 
-    recognition.onend = () => {
-      setListening(false);
-    };
+      // 마이크 권한을 recognition.start() 전에 명시적으로 확인
+      // → 권한 팝업에 응답하는 동안 no-speech 타이머가 낭비되는 것을 방지
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop()); // 확인만 하고 바로 해제
+      } catch (err) {
+        setError(
+          err.name === "NotAllowedError"
+            ? "마이크 권한이 거부되었어요. 브라우저 주소창 옆 마이크 아이콘에서 허용해주세요."
+            : "마이크에 접근할 수 없어요. 기기 설정을 확인해주세요."
+        );
+        return;
+      }
 
-    recognitionRef.current = recognition;
-
-    return () => {
-      recognition.abort();
-      recognitionRef.current = null;
-    };
-  }, [lang, supported, onResult]);
-
-  const start = useCallback(() => {
-    if (!recognitionRef.current) return;
-    setError(null);
-    try {
-      recognitionRef.current.start();
       setListening(true);
-    } catch {
-      // 이미 실행 중이면 무시
-    }
-  }, []);
+      runRecognition(onResult);
+    },
+    [supported, runRecognition]
+  );
 
-  const stop = useCallback(() => {
-    recognitionRef.current?.stop();
-    setListening(false);
-  }, []);
-
-  return { listening, error, supported, start, stop };
+  return { listening, processing, error, supported, start };
 }

@@ -1,30 +1,26 @@
 import { useState, useCallback } from "react";
-import { Search, Mic, MicOff, Loader2 } from "lucide-react";
+import { Search, Mic, Loader2 } from "lucide-react";
 import { useVoiceSearch } from "../hooks/useVoiceSearch";
 
 export default function SearchBar({ onSearch }) {
   const [value, setValue] = useState("");
 
-  const handleVoiceResult = useCallback((transcript) => {
-    setValue(transcript);
-  }, []);
-
-  const { listening, error: voiceError, supported, start, stop } = useVoiceSearch({
-    onResult: handleVoiceResult,
-  });
+  const { listening, processing, error, supported, start } = useVoiceSearch();
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (value.trim()) onSearch(value.trim());
   };
 
-  const handleMicClick = () => {
-    if (listening) {
-      stop();
-    } else {
-      start();
-    }
-  };
+  const handleMicClick = useCallback(() => {
+    start((keyword) => {
+      if (!keyword) return;
+      setValue(keyword);
+      onSearch(keyword);
+    });
+  }, [start, onSearch]);
+
+  const busy = listening || processing;
 
   return (
     <div className="space-y-2">
@@ -35,21 +31,22 @@ export default function SearchBar({ onSearch }) {
             type="text"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder="책 제목, 저자, 청구기호 입력..."
+            placeholder={listening ? "듣고 있어요..." : "책 제목, 저자, 청구기호 입력..."}
             className="flex-1 bg-transparent px-4 py-4 text-sm text-foreground placeholder:text-muted-foreground outline-none"
           />
           {supported && (
             <button
               type="button"
               onClick={handleMicClick}
+              disabled={busy}
               className={`p-2.5 mx-1 rounded-xl transition-colors ${
                 listening
                   ? "bg-red-50 text-red-500 animate-pulse"
                   : "text-muted-foreground hover:bg-muted"
-              }`}
-              title={listening ? "음성인식 중지" : "음성으로 검색"}
+              } disabled:opacity-60`}
+              title={listening ? "듣는 중..." : "음성으로 검색"}
             >
-              {listening ? (
+              {busy ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
                 <Mic className="w-5 h-5" />
@@ -68,9 +65,10 @@ export default function SearchBar({ onSearch }) {
       {listening && (
         <p className="text-xs text-accent-gold font-medium px-2">🎤 말씀하세요...</p>
       )}
-      {voiceError && (
-        <p className="text-xs text-red-500 px-2">음성인식 오류: {voiceError}</p>
+      {processing && (
+        <p className="text-xs text-muted-foreground px-2">키워드를 분석하고 있어요...</p>
       )}
+      {error && <p className="text-xs text-red-500 px-2">{error}</p>}
     </div>
   );
 }
