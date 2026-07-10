@@ -27,12 +27,6 @@ export function useVoiceSearch({ lang = "ko-KR" } = {}) {
         if (!transcript) return;
 
         const quickKeyword = transcript.replace(TRAILING_REQUEST_PATTERN, "").trim();
-        const isShort = quickKeyword.split(/\s+/).length <= 2;
-
-        if (isShort) {
-          onResult(quickKeyword);
-          return;
-        }
 
         setProcessing(true);
         try {
@@ -72,7 +66,7 @@ export function useVoiceSearch({ lang = "ko-KR" } = {}) {
         retriedRef.current = false;
 
         const messages = {
-          "no-speech": "음성이 감지되지 않았어요. 마이크에 가까이 대고 다시 눌러 바로 말씀해주세요.",
+          "no-speech": "음성이 감지되지 않았어요. 마이크에 가까이 대고 다시 눌러 바로 말해주세요.",
           "not-allowed": "마이크 권한이 차단되어 있어요. 브라우저 설정에서 마이크 권한을 허용해주세요.",
           "audio-capture": "마이크를 찾을 수 없어요. 기기의 마이크 연결을 확인해주세요.",
           network: "네트워크 오류로 음성 인식에 실패했어요. 인터넷 연결을 확인해주세요.",
