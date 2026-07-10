@@ -1,4 +1,4 @@
-// 먹똑 로컬 서버 — 도서 API + rosbridge WebSocket 브릿지 (MongoDB 영구 저장)
+// 먹똑 로컬 서버 — 도서 API + rosbridge WebSocket 브릿지 + Groq AI 검색어 추출
 // 실행: npm install && npm start  (또는) npm run dev
 import express from "express";
 import mongoose from "mongoose";
@@ -13,6 +13,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const ROSBRIDGE_URL = process.env.ROSBRIDGE_URL || "ws://localhost:9090";
 const MONGODB_URI = process.env.MONGODB_URI;
+
+// ── GROQ 설정 ──
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+const TRAILING_REQUEST_PATTERN = /\s?(찾아줘|검색해줘|알려줘|보여줘)[.!?~]*$/;
 
 if (!MONGODB_URI) {
   console.error("에러: MONGODB_URI 환경 변수가 설정되지 않았습니다.");
@@ -38,7 +43,7 @@ const Book = mongoose.model("Book", bookSchema);
 
 const robotStatusSchema = new mongoose.Schema({
   key: { type: String, unique: true, default: "robot" },
-  status: { type: String, default: "idle" }, // idle | navigating:0001 | succeeded:0001 | failed 등
+  status: { type: String, default: "idle" },
   updatedAt: { type: Date, default: Date.now },
 });
 const RobotStatus = mongoose.model("RobotStatus", robotStatusSchema);
@@ -61,17 +66,21 @@ async function saveRobotStatus(statusText) {
 
 const app = express();
 
-// CORS (Vite 프론트엔드에서 호출 허용)
+// ── 미들웨어 설정 ──
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS"); // POST 허용 추가
   res.header("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
 
-// GET /books              → 전체 목록
-// GET /books?search=키워드 → 제목/저자/청구기호 부분 일치
+// JSON Body 파싱 (반드시 라우트 앞에 위치)
+app.use(express.json());
+
+// ── HTTP 라우트 ──
+
+// GET /books
 app.get("/books", async (req, res) => {
   const q = (req.query.search || "").toString().trim();
   const filter = q
@@ -88,7 +97,7 @@ app.get("/books", async (req, res) => {
   res.json(books);
 });
 
-// GET /books/:id → 단건 (id 또는 book_id)
+// GET /books/:id
 app.get("/books/:id", async (req, res) => {
   const id = req.params.id;
   const book = await Book.findOne({ $or: [{ book_id: id }, { id: Number(id) || -1 }] }).lean();
@@ -96,12 +105,75 @@ app.get("/books/:id", async (req, res) => {
   res.json(book);
 });
 
-// GET /robot-status → 마지막으로 저장된 로봇 상태 조회
+// GET /robot-status
 app.get("/robot-status", async (req, res) => {
   const doc = await RobotStatus.findOne({ key: "robot" }).lean();
   res.json({ status: doc?.status || "idle" });
 });
 
+// POST /extract-keyword (음성 검색 키워드 추출)
+app.post("/extract-keyword", async (req, res) => {
+  const { text } = req.body || {};
+  if (!text || typeof text !== "string" || !text.trim()) {
+    return res.status(400).json({ error: "text가 필요합니다." });
+  }
+
+  if (!GROQ_API_KEY) {
+    const fallback = text.replace(TRAILING_REQUEST_PATTERN, "").trim();
+    console.warn("GROQ_API_KEY 미설정 — 정규식 폴백만 사용");
+    return res.json({ keyword: fallback, fallback: true });
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        temperature: 0,
+        max_tokens: 20,
+        messages: [
+          {
+            role: "system",
+            content:
+              "너는 도서관 검색어 추출기다. 사용자의 음성 입력에서 검색할 핵심 키워드(책 제목, 저자명, 주제어 등)만 뽑아 단답형으로 출력하라. " +
+              "조사, 부가 설명, 문장부호, '찾아줘/검색해줘/알려줘' 같은 요청 표현은 모두 제거하라. " +
+              "예시 입력: '해리포터 책 좀 찾아줘' → 출력: '해리포터'. " +
+              "부가 설명이나 완성된 문장을 절대 덧붙이지 마라. 키워드만 출력하라.",
+          },
+          { role: "user", content: text },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!groqRes.ok) {
+      throw new Error(`Groq API 응답 오류: ${groqRes.status}`);
+    }
+
+    const data = await groqRes.json();
+    const keyword = data.choices?.[0]?.message?.content?.trim();
+
+    if (!keyword) throw new Error("빈 응답");
+
+    const cleaned = keyword.replace(/^["'“”]|["'“”.]$/g, "").trim();
+    res.json({ keyword: cleaned });
+  } catch (err) {
+    clearTimeout(timer);
+    console.warn("Groq 키워드 추출 실패, 정규식 폴백 사용:", err.message);
+    const fallback = text.replace(TRAILING_REQUEST_PATTERN, "").trim();
+    res.json({ keyword: fallback, fallback: true });
+  }
+});
+
+// ── 서버 실행 및 WebSocket 프록시 ──
 async function startServer() {
   await mongoose.connect(MONGODB_URI);
   console.log("✅ MongoDB 연결 성공!");
@@ -109,16 +181,16 @@ async function startServer() {
 
   const httpServer = app.listen(PORT, () => {
     console.log(`📚 도서 API  → http://localhost:${PORT}/books`);
+    console.log(`🧠 AI 키워드 추출 API → POST http://localhost:${PORT}/extract-keyword`);
   });
 
-  // ── /ros WebSocket 브릿지 (프론트엔드 ↔ rosbridge 투명 전달) ──
   const wss = new WebSocketServer({ server: httpServer, path: "/ros" });
 
   wss.on("connection", (clientSocket) => {
     console.log("🔗 프론트엔드가 /ros 에 연결됨");
 
     let rosSocket = null;
-    const buffer = []; // rosbridge 연결 전 클라이언트 메시지 보관
+    const buffer = [];
     let closed = false;
 
     const connectRos = () => {
@@ -132,7 +204,6 @@ async function startServer() {
 
       rosSocket.on("message", (data) => {
         const str = data.toString();
-        // /app/nav_status 메시지는 DB에도 저장해서 서버 재시작 후에도 마지막 상태를 기억
         try {
           const parsed = JSON.parse(str);
           console.log(`[rosbridge→서버] op=${parsed.op} topic=${parsed.topic} data=${parsed.msg?.data || ""}`);
@@ -140,7 +211,7 @@ async function startServer() {
             const statusText = parsed.msg?.data;
             if (statusText) saveRobotStatus(statusText);
           }
-        } catch {/* ignore non-JSON */}
+        } catch {/* ignore */}
 
         if (clientSocket.readyState === WebSocket.OPEN) {
           clientSocket.send(str);
@@ -154,17 +225,17 @@ async function startServer() {
         setTimeout(connectRos, 3000);
       });
 
-      rosSocket.on("error", () => { /* close 이벤트에서 재시도 */ });
+      rosSocket.on("error", () => { /* close에서 처리 */ });
     };
     connectRos();
 
-    // 클라이언트 → rosbridge
     clientSocket.on("message", (data) => {
       const str = data.toString();
       try {
         const parsed = JSON.parse(str);
         console.log(`[프론트→rosbridge] op=${parsed.op} topic=${parsed.topic} data=${parsed.msg?.data || ""}`);
-      } catch {/* ignore non-JSON */}
+      } catch {/* ignore */}
+      
       if (rosSocket && rosSocket.readyState === WebSocket.OPEN) {
         rosSocket.send(str);
       } else if (rosSocket && rosSocket.readyState === WebSocket.CONNECTING) {
