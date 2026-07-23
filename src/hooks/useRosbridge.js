@@ -19,12 +19,24 @@ export function useRosbridge() {
   const reconnectTimer = useRef(null);
   const subscribed = useRef(false);
   const [connStatus, setConnStatus] = useState("disconnected"); // disconnected | connecting | connected | error
+  // Render 서버 자체가 아니라 "서버 -> rosbridge(ngrok) -> 로봇"까지 실제로 붙었는지 여부
+  const [robotConnected, setRobotConnected] = useState(false);
   // 로봇이 보낸 상태: idle | navigating | succeeded | failed | canceled | busy | not_found | invalid_request
   const [navStatus, setNavStatus] = useState("idle");
   // 상태 문자열에 포함된 book_id (예: "navigating:0001" → "0001")
   const [navBookId, setNavBookId] = useState("");
   // 마지막 요청한 book_id (응답 매칭용)
   const requestBookId = useRef("");
+  // 요청 후 일정 시간 응답이 없으면 자동으로 실패 처리하기 위한 타이머
+  const navTimeoutTimer = useRef(null);
+  const NAV_TIMEOUT_MS = 20000; // 20초 안에 로봇 응답 없으면 실패 처리
+
+  const clearNavTimeout = useCallback(() => {
+    if (navTimeoutTimer.current) {
+      clearTimeout(navTimeoutTimer.current);
+      navTimeoutTimer.current = null;
+    }
+  }, []);
 
   const send = useCallback((obj) => {
     if (ws.current?.readyState === WebSocket.OPEN) {
@@ -59,25 +71,35 @@ export function useRosbridge() {
     ws.current.onclose = () => {
       console.warn("[rosbridge] WebSocket 연결 종료:", ROS_WS_URL);
       setConnStatus("disconnected");
+      setRobotConnected(false);
       subscribed.current = false;
       reconnectTimer.current = setTimeout(connect, 3000);
     };
     ws.current.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+
+        // 서버가 보내는 "rosbridge(ngrok) 실제 연결 여부" 메시지
+        if (msg.type === "bridge_status") {
+          console.log("[rosbridge] 서버↔로봇 브릿지 상태:", msg.connected);
+          setRobotConnected(!!msg.connected);
+          return;
+        }
+
         console.log("[rosbridge] 메시지 수신:", msg.op, msg.topic, msg.msg?.data);
         if ((msg.op === "topic" || msg.op === "publish") && msg.topic === "/app/nav_status") {
           const raw = (msg.msg?.data || "").trim();
           // "navigating:0001" → status, book_id 분리
           const [code, bookId] = raw.split(":");
           if (VALID_STATUSES.includes(code)) {
+            clearNavTimeout(); // 실제 응답이 왔으니 타임아웃 취소
             setNavStatus(code);
             setNavBookId(bookId || "");
           }
         }
       } catch {/* ignore non-JSON */}
     };
-  }, [subscribeStatus]);
+  }, [subscribeStatus, clearNavTimeout]);
 
   const disconnect = useCallback(() => {
     clearTimeout(reconnectTimer.current);
@@ -97,7 +119,11 @@ export function useRosbridge() {
    */
   const sendBookRequest = useCallback((bookId) => {
     if (ws.current?.readyState !== WebSocket.OPEN) {
-      throw new Error("로봇과 연결되지 않았습니다.");
+      throw new Error("서버와 연결되지 않았습니다.");
+    }
+    if (!robotConnected) {
+      // Render 서버까지는 붙어있어도 로봇(rosbridge)까지는 안 붙어있는 상태
+      throw new Error("로봇이 아직 연결되지 않았습니다. ngrok/rosbridge 상태를 확인해주세요.");
     }
     const id = String(bookId);
     requestBookId.current = id;
@@ -111,13 +137,31 @@ export function useRosbridge() {
       type: "std_msgs/msg/String",
       msg: { data: id },
     });
-  }, [send]);
+
+    // 일정 시간 안에 로봇 쪽 응답(succeeded/failed/not_found 등)이 없으면 자동으로 실패 처리
+    clearNavTimeout();
+    navTimeoutTimer.current = setTimeout(() => {
+      setNavStatus((prev) => (prev === "navigating" ? "failed" : prev));
+    }, NAV_TIMEOUT_MS);
+  }, [send, robotConnected, clearNavTimeout]);
 
   const resetNavStatus = useCallback(() => {
+    clearNavTimeout();
     setNavStatus("idle");
     setNavBookId("");
     requestBookId.current = "";
-  }, []);
+  }, [clearNavTimeout]);
 
-  return { connStatus, navStatus, navBookId, sendBookRequest, resetNavStatus, connect, disconnect };
+  useEffect(() => () => clearNavTimeout(), [clearNavTimeout]);
+
+  return {
+    connStatus,       // Render 서버와의 연결 상태
+    robotConnected,   // 실제 로봇(rosbridge)까지 연결됐는지
+    navStatus,
+    navBookId,
+    sendBookRequest,
+    resetNavStatus,
+    connect,
+    disconnect,
+  };
 }

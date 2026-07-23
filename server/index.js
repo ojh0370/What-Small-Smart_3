@@ -193,12 +193,21 @@ async function startServer() {
     const buffer = [];
     let closed = false;
 
+    // rosbridge(ngrok) 실제 연결 상태를 프론트엔드에 별도 메시지로 알림.
+    // 프론트는 이 메시지로 "Render 서버 연결"과 "로봇(rosbridge) 연결"을 구분해서 표시함.
+    const sendBridgeStatus = (connected) => {
+      if (clientSocket.readyState === WebSocket.OPEN) {
+        clientSocket.send(JSON.stringify({ type: "bridge_status", connected }));
+      }
+    };
+
     const connectRos = () => {
       console.log(`rosbridge 연결 시도: ${ROSBRIDGE_URL}`);
       rosSocket = new WebSocket(ROSBRIDGE_URL);
 
       rosSocket.on("open", () => {
         console.log("✅ rosbridge 연결됨 — 버퍼 전송");
+        sendBridgeStatus(true);
         while (buffer.length) rosSocket.send(buffer.shift());
       });
 
@@ -220,6 +229,7 @@ async function startServer() {
 
       rosSocket.on("close", () => {
         rosSocket = null;
+        sendBridgeStatus(false);
         if (closed) return;
         console.warn("rosbridge 연결 종료 — 3초 후 재시도");
         setTimeout(connectRos, 3000);
@@ -227,6 +237,8 @@ async function startServer() {
 
       rosSocket.on("error", () => { /* close에서 처리 */ });
     };
+    // 클라이언트가 붙자마자 현재는 아직 rosbridge 연결 전이므로 false로 먼저 알림
+    sendBridgeStatus(false);
     connectRos();
 
     clientSocket.on("message", (data) => {

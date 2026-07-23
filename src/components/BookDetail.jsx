@@ -1,27 +1,26 @@
-
 import { useState } from "react";
 import { X, MapPin, BookMarked, User, Building2, Hash, Navigation, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRosbridge } from "../hooks/useRosbridge";
 import RobotStatusBadge from "./RobotStatusBadge";
 import NavStatusView from "./NavStatusView";
- 
+
 export default function BookDetail({ book, onClose }) {
   const { connStatus, robotConnected, navStatus, navBookId, sendBookRequest, resetNavStatus } = useRosbridge();
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
- 
+
   const bookId = String(book.book_id || book.id);
- 
+
   // 배지에 실제 상태를 반영: 서버(connStatus)는 붙었는데 로봇(robotConnected)이 안 붙었으면 별도 표시
   const badgeStatus =
     connStatus === "connected" && !robotConnected ? "server_only" : connStatus;
   const trulyConnected = connStatus === "connected" && robotConnected;
- 
+
   const handleGuide = () => {
     setError(null);
     resetNavStatus();
- 
+
     if (!trulyConnected) {
       setError(
         connStatus !== "connected"
@@ -30,7 +29,7 @@ export default function BookDetail({ book, onClose }) {
       );
       return;
     }
- 
+
     setSending(true);
     try {
       sendBookRequest(bookId);
@@ -40,9 +39,9 @@ export default function BookDetail({ book, onClose }) {
       setSending(false);
     }
   };
- 
+
   const busy = navStatus === "navigating" || sending;
- 
+
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -53,7 +52,7 @@ export default function BookDetail({ book, onClose }) {
           onClick={onClose}
           className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         />
- 
+
         <motion.div
           initial={{ y: 60, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
@@ -64,7 +63,7 @@ export default function BookDetail({ book, onClose }) {
           <div className="flex justify-center pt-3 pb-1 sm:hidden">
             <div className="w-10 h-1 bg-border rounded-full" />
           </div>
- 
+
           <div className="flex items-start justify-between px-6 pt-4 pb-3">
             <div className="flex items-center gap-2 flex-wrap">
               {book.is_available !== false ? (
@@ -85,7 +84,7 @@ export default function BookDetail({ book, onClose }) {
               <X className="w-4 h-4 text-muted-foreground" />
             </button>
           </div>
- 
+
           <div className="px-6 pb-2">
             <div className="flex gap-4">
               <div className="w-20 h-28 bg-gradient-to-br from-primary/10 to-accent-gold/20 rounded-xl shrink-0 flex items-center justify-center shadow-sm">
@@ -107,7 +106,7 @@ export default function BookDetail({ book, onClose }) {
               </div>
             </div>
           </div>
- 
+
           <div className="mx-6 my-4 bg-accent-gold/5 border border-accent-gold/20 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-3">
               <MapPin className="w-4 h-4 text-accent-gold" />
@@ -127,7 +126,7 @@ export default function BookDetail({ book, onClose }) {
                 <p className="text-xl font-bold text-foreground">{book.shelf_number || "-"}</p>
               </div>
             </div>
- 
+
             <div className="mt-3 flex items-center gap-2 bg-primary/5 rounded-xl px-3 py-2">
               <Navigation className="w-3.5 h-3.5 text-primary" />
               <span className="text-xs text-muted-foreground font-mono truncate">
@@ -135,22 +134,22 @@ export default function BookDetail({ book, onClose }) {
               </span>
             </div>
           </div>
- 
+
           {book.description && (
             <div className="px-6 pb-2">
               <p className="text-sm text-muted-foreground leading-relaxed">{book.description}</p>
             </div>
           )}
- 
+
           <div className="px-6 pb-8 pt-2 space-y-2">
             <NavStatusView status={navStatus} bookId={navBookId} />
- 
+
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm text-red-600 text-center">
                 ⚠️ {error}
               </div>
             )}
- 
+
             <button
               onClick={handleGuide}
               disabled={busy || !trulyConnected}
@@ -170,4 +169,3 @@ export default function BookDetail({ book, onClose }) {
     </AnimatePresence>
   );
 }
- 
