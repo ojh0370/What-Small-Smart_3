@@ -11,7 +11,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ── 설정 ──
 const PORT = process.env.PORT || 3000;
-const ROSBRIDGE_URL = process.env.ROSBRIDGE_URL || "ws://localhost:9090";
+const ROSBRIDGE_URL = process.env.ROSBRIDGE_URL || "wss://bargraph-plausibly-theology.ngrok-free.dev";
 const MONGODB_URI = process.env.MONGODB_URI;
 
 // ── GROQ 설정 ──
@@ -235,7 +235,24 @@ async function startServer() {
     console.log(`🧠 AI 키워드 추출 API → POST http://localhost:${PORT}/extract-keyword`);
   });
 
-  const wss = new WebSocketServer({ server: httpServer, path: "/ros" });
+  httpServer.on("upgrade", (request, socket, head) => {
+  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+
+  if (pathname === "/ros") {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit("connection", ws, request);
+    });
+  } else if (pathname === "/alerts-ws") {
+    wssAlerts.handleUpgrade(request, socket, head, (ws) => {
+      wssAlerts.emit("connection", ws, request);
+    });
+  } else {
+    // 경로가 일치하지 않으면 연결 파기 (400 에러 반환)
+    socket.destroy();
+  }
+});
+
+  const wss = new WebSocketServer({ noServer: true });
 
   wss.on("connection", (clientSocket) => {
     console.log("🔗 프론트엔드가 /ros 에 연결됨");
@@ -314,7 +331,7 @@ async function startServer() {
   });
 
   // 추종자 이탈 경고 전용 WebSocket (/alerts-ws) — 로봇 제어(/ros)와 완전히 분리된 채널
-  const wssAlerts = new WebSocketServer({ server: httpServer, path: "/alerts-ws" });
+  const wssAlerts = new WebSocketServer({ noServer: true });
   wssAlerts.on("connection", (client) => {
     console.log("🔔 프론트엔드가 /alerts-ws 에 연결됨");
     alertClients.add(client);
