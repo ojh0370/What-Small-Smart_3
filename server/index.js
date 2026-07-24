@@ -140,7 +140,7 @@ app.post("/alert", async (req, res) => {
   console.log(`🚨 추종자 이탈 경고 수신: ${distance.toFixed(1)}cm`);
 
   // 지금 웹사이트에 접속 중인 모든 프론트엔드에 실시간으로 알림 전달
-  broadcastToClients({ type: "follower_alert", distance, createdAt: new Date().toISOString() });
+  broadcastAlert({ type: "follower_alert", distance, createdAt: new Date().toISOString() });
 
   res.json({ ok: true });
 });
@@ -215,11 +215,12 @@ app.post("/extract-keyword", async (req, res) => {
 });
 
 // ── 서버 실행 및 WebSocket 프록시 ──
-const allClients = new Set();
+// 추종자 이탈 경고를 실시간으로 뿌려줄 전용 채널 (로봇 제어용 /ros 와는 별개)
+const alertClients = new Set();
 
-function broadcastToClients(payload) {
+function broadcastAlert(payload) {
   const str = JSON.stringify(payload);
-  for (const client of allClients) {
+  for (const client of alertClients) {
     if (client.readyState === WebSocket.OPEN) client.send(str);
   }
 }
@@ -238,7 +239,6 @@ async function startServer() {
 
   wss.on("connection", (clientSocket) => {
     console.log("🔗 프론트엔드가 /ros 에 연결됨");
-    allClients.add(clientSocket);
 
     let rosSocket = null;
     const buffer = [];
@@ -308,9 +308,19 @@ async function startServer() {
 
     clientSocket.on("close", () => {
       closed = true;
-      allClients.delete(clientSocket);
       console.log("프론트엔드 연결 해제");
       rosSocket?.close();
+    });
+  });
+
+  // 추종자 이탈 경고 전용 WebSocket (/alerts-ws) — 로봇 제어(/ros)와 완전히 분리된 채널
+  const wssAlerts = new WebSocketServer({ server: httpServer, path: "/alerts-ws" });
+  wssAlerts.on("connection", (client) => {
+    console.log("🔔 프론트엔드가 /alerts-ws 에 연결됨");
+    alertClients.add(client);
+    client.on("close", () => {
+      alertClients.delete(client);
+      console.log("🔔 /alerts-ws 연결 해제");
     });
   });
 
