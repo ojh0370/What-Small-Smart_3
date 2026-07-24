@@ -4,6 +4,8 @@ import { queryClientInstance } from '@/lib/query-client'
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import Home from './pages/Home';
+import BuzzerMonitor from './pages/BuzzerMonitor';
+import GlobalAlertToast from './components/GlobalAlertToast';
 
 function App() {
   return (
@@ -11,9 +13,11 @@ function App() {
       <Router>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/buzzer" element={<BuzzerMonitor />} />
           <Route path="*" element={<PageNotFound />} />
         </Routes>
       </Router>
+      <GlobalAlertToast />
       <Toaster />
     </QueryClientProvider>
   )

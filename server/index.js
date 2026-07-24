@@ -19,6 +19,9 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 const TRAILING_REQUEST_PATTERN = /\s?(찾아줘|검색해줘|알려줘|보여줘)[.!?~]*$/;
 
+// ── 라즈베리파이(추종자 이탈 감지) 인증 ──
+const PI_API_KEY = process.env.PI_API_KEY;
+
 if (!MONGODB_URI) {
   console.error("에러: MONGODB_URI 환경 변수가 설정되지 않았습니다.");
   process.exit(1);
@@ -47,6 +50,13 @@ const robotStatusSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 });
 const RobotStatus = mongoose.model("RobotStatus", robotStatusSchema);
+
+// 추종자 이탈 경고 이력
+const alertLogSchema = new mongoose.Schema({
+  distance: Number,
+  createdAt: { type: Date, default: Date.now },
+});
+const AlertLog = mongoose.model("AlertLog", alertLogSchema);
 
 async function seedBooksIfEmpty() {
   const count = await Book.countDocuments();
@@ -109,6 +119,37 @@ app.get("/books/:id", async (req, res) => {
 app.get("/robot-status", async (req, res) => {
   const doc = await RobotStatus.findOne({ key: "robot" }).lean();
   res.json({ status: doc?.status || "idle" });
+});
+
+// POST /alert — 라즈베리파이(ESP32 초음파 센서)가 보내는 "추종자 이탈" 경고 수신
+app.post("/alert", async (req, res) => {
+  const { distance, api_key } = req.body || {};
+
+  if (!PI_API_KEY) {
+    console.error("에러: PI_API_KEY 환경 변수가 설정되지 않았습니다.");
+    return res.status(500).json({ error: "server_not_configured" });
+  }
+  if (api_key !== PI_API_KEY) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  if (typeof distance !== "number" || Number.isNaN(distance)) {
+    return res.status(400).json({ error: "invalid_distance" });
+  }
+
+  await AlertLog.create({ distance });
+  console.log(`🚨 추종자 이탈 경고 수신: ${distance.toFixed(1)}cm`);
+
+  // 지금 웹사이트에 접속 중인 모든 프론트엔드에 실시간으로 알림 전달
+  broadcastToClients({ type: "follower_alert", distance, createdAt: new Date().toISOString() });
+
+  res.json({ ok: true });
+});
+
+// GET /alerts — 최근 경고 이력 (알림 히스토리 화면용)
+app.get("/alerts", async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 20, 100);
+  const alerts = await AlertLog.find().sort({ createdAt: -1 }).limit(limit).lean();
+  res.json(alerts);
 });
 
 // POST /extract-keyword (음성 검색 키워드 추출)
@@ -174,6 +215,15 @@ app.post("/extract-keyword", async (req, res) => {
 });
 
 // ── 서버 실행 및 WebSocket 프록시 ──
+const allClients = new Set();
+
+function broadcastToClients(payload) {
+  const str = JSON.stringify(payload);
+  for (const client of allClients) {
+    if (client.readyState === WebSocket.OPEN) client.send(str);
+  }
+}
+
 async function startServer() {
   await mongoose.connect(MONGODB_URI);
   console.log("✅ MongoDB 연결 성공!");
@@ -188,6 +238,7 @@ async function startServer() {
 
   wss.on("connection", (clientSocket) => {
     console.log("🔗 프론트엔드가 /ros 에 연결됨");
+    allClients.add(clientSocket);
 
     let rosSocket = null;
     const buffer = [];
@@ -257,6 +308,7 @@ async function startServer() {
 
     clientSocket.on("close", () => {
       closed = true;
+      allClients.delete(clientSocket);
       console.log("프론트엔드 연결 해제");
       rosSocket?.close();
     });

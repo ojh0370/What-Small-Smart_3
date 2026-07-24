@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import SearchBar from "../components/SearchBar";
 import BookCard from "../components/BookCard";
 import BookDetail from "../components/BookDetail";
 import { bookService } from "../api/bookService";
-import { BookOpen, Bot } from "lucide-react";
+import { BookOpen, Bot, ShieldAlert } from "lucide-react";
 
 export default function Home() {
   const [query, setQuery] = useState("");
@@ -24,14 +25,23 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-surface">
       {/* Header */}
-      <header className="bg-primary text-primary-foreground px-6 py-5 flex items-center gap-3 shadow-md">
-        <div className="w-9 h-9 bg-accent-gold rounded-lg flex items-center justify-center">
-          <Bot className="w-5 h-5 text-primary" />
+      <header className="bg-primary text-primary-foreground px-6 py-5 flex items-center justify-between shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-accent-gold rounded-lg flex items-center justify-center">
+            <Bot className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold tracking-tight leading-none">먹똑</h1>
+            <p className="text-xs text-primary-foreground/60 mt-0.5">도서관 안내 로봇</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-lg font-bold tracking-tight leading-none">먹똑</h1>
-          <p className="text-xs text-primary-foreground/60 mt-0.5">도서관 안내 로봇</p>
-        </div>
+        <Link
+          to="/buzzer"
+          className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors"
+          title="추종 안전 모니터"
+        >
+          <ShieldAlert className="w-4 h-4" />
+        </Link>
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-8">
