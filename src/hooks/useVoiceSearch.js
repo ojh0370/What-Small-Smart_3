@@ -19,17 +19,16 @@ export function useVoiceSearch({ lang = "ko-KR" } = {}) {
       const recognition = new SR();
       recognition.lang = lang;
       recognition.interimResults = false;
-      // 마이크가 일찍 꺼지는 현상을 방지하려면 true로 변경 가능
-      recognition.continuous = false; 
+      recognition.continuous = false;
 
       recognition.onresult = async (event) => {
-        // 1. 끊어 읽기로 인해 분할된 모든 음성 인식 배열을 순회하며 하나의 문자열로 병합
+        // 1. 분할된 모든 음성 인식 결과를 순회하며 하나의 문자열로 병합
         let fullTranscript = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
           fullTranscript += event.results[i][0].transcript;
         }
 
-        // 2. 엔진이 자동 삽입한 쉼표(,), 마침표 등을 공백으로 치환하고 다중 공백을 하나로 압축
+        // 2. 엔진이 자동 삽입한 쉼표, 마침표를 공백으로 치환하고 다중 공백을 하나로 압축
         const cleanTranscript = fullTranscript
           .replace(/[,.!?\n]/g, " ")
           .replace(/\s+/g, " ")
@@ -40,19 +39,20 @@ export function useVoiceSearch({ lang = "ko-KR" } = {}) {
 
         console.log("[음성 인식 테스트] 원본 병합 텍스트:", cleanTranscript);
 
+        // 3. 정제된 텍스트를 바탕으로 불필요한 명령어(찾아줘 등) 제거
         const quickKeyword = cleanTranscript.replace(TRAILING_REQUEST_PATTERN, "").trim();
 
         setProcessing(true);
-
-        // 3. Vercel 단독 테스트를 위해 백엔드 통신(fetch) 로직 주석 처리 유지
-        /*
+        console.log("[음성 인식 테스트] 추출 키워드 (폴백용):", quickKeyword);
+        
+        // 4. 원본 프로젝트 연결을 위해 서버(Render) 통신(Fetch) 로직 유지 및 병합 텍스트 전송
         try {
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 6000);
           const res = await fetch(`${API_BASE}/extract-keyword`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: cleanTranscript }),
+            body: JSON.stringify({ text: cleanTranscript }), // 수정됨: 정제된 텍스트(cleanTranscript) 전송
             signal: controller.signal,
           });
           clearTimeout(timer);
@@ -65,11 +65,6 @@ export function useVoiceSearch({ lang = "ko-KR" } = {}) {
         } finally {
           setProcessing(false);
         }
-        */
-
-        console.log("[음성 인식 테스트] 최종 추출 키워드:", quickKeyword);
-        onResult(quickKeyword);
-        setProcessing(false);
       };
 
       recognition.onerror = (event) => {
@@ -77,7 +72,7 @@ export function useVoiceSearch({ lang = "ko-KR" } = {}) {
           retriedRef.current = true;
           try {
             recognition.start();
-            return; 
+            return;
           } catch {}
         }
 
