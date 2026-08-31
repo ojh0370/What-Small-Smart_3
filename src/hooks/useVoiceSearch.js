@@ -19,23 +19,40 @@ export function useVoiceSearch({ lang = "ko-KR" } = {}) {
       const recognition = new SR();
       recognition.lang = lang;
       recognition.interimResults = false;
-      recognition.continuous = false;
+      // 마이크가 일찍 꺼지는 현상을 방지하려면 true로 변경 가능
+      recognition.continuous = false; 
 
       recognition.onresult = async (event) => {
-        const transcript = event.results[0][0].transcript.trim();
-        setListening(false);
-        if (!transcript) return;
+        // 1. 끊어 읽기로 인해 분할된 모든 음성 인식 배열을 순회하며 하나의 문자열로 병합
+        let fullTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          fullTranscript += event.results[i][0].transcript;
+        }
 
-        const quickKeyword = transcript.replace(TRAILING_REQUEST_PATTERN, "").trim();
+        // 2. 엔진이 자동 삽입한 쉼표(,), 마침표 등을 공백으로 치환하고 다중 공백을 하나로 압축
+        const cleanTranscript = fullTranscript
+          .replace(/[,.!?\n]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        setListening(false);
+        if (!cleanTranscript) return;
+
+        console.log("[음성 인식 테스트] 원본 병합 텍스트:", cleanTranscript);
+
+        const quickKeyword = cleanTranscript.replace(TRAILING_REQUEST_PATTERN, "").trim();
 
         setProcessing(true);
+
+        // 3. Vercel 단독 테스트를 위해 백엔드 통신(fetch) 로직 주석 처리 유지
+        /*
         try {
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 6000);
           const res = await fetch(`${API_BASE}/extract-keyword`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: transcript }),
+            body: JSON.stringify({ text: cleanTranscript }),
             signal: controller.signal,
           });
           clearTimeout(timer);
@@ -48,18 +65,20 @@ export function useVoiceSearch({ lang = "ko-KR" } = {}) {
         } finally {
           setProcessing(false);
         }
+        */
+
+        console.log("[음성 인식 테스트] 최종 추출 키워드:", quickKeyword);
+        onResult(quickKeyword);
+        setProcessing(false);
       };
 
       recognition.onerror = (event) => {
-        // no-speech는 첫 시도에서 흔히 발생 (마이크 초기화 지연) → 1회 자동 재시도
         if (event.error === "no-speech" && !retriedRef.current) {
           retriedRef.current = true;
           try {
             recognition.start();
-            return; // 에러 상태로 안 내려가고 재시도
-          } catch {
-            // 재시도 실패 시 아래로 폴스루
-          }
+            return; 
+          } catch {}
         }
 
         setListening(false);
@@ -91,11 +110,9 @@ export function useVoiceSearch({ lang = "ko-KR" } = {}) {
       setError(null);
       retriedRef.current = false;
 
-      // 마이크 권한을 recognition.start() 전에 명시적으로 확인
-      // → 권한 팝업에 응답하는 동안 no-speech 타이머가 낭비되는 것을 방지
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach((t) => t.stop()); // 확인만 하고 바로 해제
+        stream.getTracks().forEach((t) => t.stop()); 
       } catch (err) {
         setError(
           err.name === "NotAllowedError"
