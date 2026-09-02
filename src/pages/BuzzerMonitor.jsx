@@ -2,12 +2,14 @@ import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useAlertSocket } from "../hooks/useAlertSocket";
+import { useBuzzerAudio } from "../hooks/useBuzzerAudio";
 import { alertService } from "../api/alertService";
 import StatusBar from "../components/buzzer/StatusBar";
 import AlertHistory from "../components/buzzer/AlertHistory";
 
 export default function BuzzerMonitor() {
   const { connStatus, latestAlert, alertActive } = useAlertSocket();
+  const { playAlertSound } = useBuzzerAudio();
   const [history, setHistory] = useState([]);
   const lastSeenAt = useRef(null);
 
@@ -16,15 +18,15 @@ export default function BuzzerMonitor() {
     alertService.list(30).then(setHistory).catch(() => {});
   }, []);
 
-  // 새 경고가 실시간으로 들어오면 이력 맨 위에 추가 (소리는 재생하지 않음)
+  // 새 경고가 실시간으로 들어오면 이력 맨 위에 추가 + 소리 재생
   useEffect(() => {
     if (!latestAlert?.createdAt) return;
     if (lastSeenAt.current === latestAlert.createdAt) return; // 같은 알림 중복 처리 방지
     lastSeenAt.current = latestAlert.createdAt;
 
     setHistory((prev) => [latestAlert, ...prev].slice(0, 50));
-  }, [latestAlert]);
-
+    playAlertSound();
+  }, [latestAlert, playAlertSound]);
 
   return (
     <div className="min-h-screen bg-surface">
