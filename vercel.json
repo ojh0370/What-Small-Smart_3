@@ -1,4 +1,5 @@
-﻿{
+﻿$json = @'
+{
   "rewrites": [
     {
       "source": "/(.*)",
@@ -6,3 +7,10 @@
     }
   ]
 }
+'@
+
+[System.IO.File]::WriteAllText(
+  (Join-Path (Get-Location).Path "vercel.json"),
+  $json,
+  [System.Text.UTF8Encoding]::new($false)
+)
