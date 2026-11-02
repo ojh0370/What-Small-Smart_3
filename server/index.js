@@ -123,6 +123,7 @@ app.get("/robot-status", async (req, res) => {
 
 // POST /alert — 라즈베리파이(ESP32 초음파 센서)가 보내는 "추종자 이탈" 경고 수신
 app.post("/alert", async (req, res) => {
+  console.log("[/alert] 요청 도착, body keys:", Object.keys(req.body || {}));
   const { distance, api_key } = req.body || {};
 
   if (!PI_API_KEY) {
@@ -130,9 +131,11 @@ app.post("/alert", async (req, res) => {
     return res.status(500).json({ error: "server_not_configured" });
   }
   if (api_key !== PI_API_KEY) {
+    console.warn("⚠️ /alert 인증 실패: api_key 불일치");   // ← 추가
     return res.status(401).json({ error: "unauthorized" });
   }
   if (typeof distance !== "number" || Number.isNaN(distance)) {
+    console.warn("⚠️ /alert distance 형식 오류:", typeof distance, distance);  // ← 추가
     return res.status(400).json({ error: "invalid_distance" });
   }
 
