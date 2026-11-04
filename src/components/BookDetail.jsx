@@ -1,16 +1,21 @@
 import { useState } from "react";
 import { X, MapPin, BookMarked, User, Building2, Hash, Navigation, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRosbridge } from "../hooks/useRosbridge";
+import { useRosbridge } from "../context/RosbridgeContext";
 import RobotStatusBadge from "./RobotStatusBadge";
 import NavStatusView from "./NavStatusView";
 
-export default function BookDetail({ book, onClose }) {
+export default function BookDetail({ book, onClose, onGuideRequested }) {
   const { connStatus, robotConnected, navStatus, navBookId, sendBookRequest, resetNavStatus } = useRosbridge();
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
 
   const bookId = String(book.book_id || book.id);
+
+  // 연결이 앱 전체에서 공유되므로, 이전에 안내했던 다른 책의 상태가 남아 있을 수 있어요.
+  // 이 책에 대한 상태일 때만 보여주고, 아니면 "대기" 상태로 보여줘요.
+  const isThisBook = navBookId === bookId;
+  const viewStatus = isThisBook ? navStatus : "idle";
 
   // 배지에 실제 상태를 반영: 서버(connStatus)는 붙었는데 로봇(robotConnected)이 안 붙었으면 별도 표시
   const badgeStatus =
@@ -33,6 +38,7 @@ export default function BookDetail({ book, onClose }) {
     setSending(true);
     try {
       sendBookRequest(bookId);
+      onGuideRequested?.(bookId); // 요청이 나갔다고 Home에 알려요 (도착하면 "계속 이용" 화면을 띄우기 위해)
     } catch (e) {
       setError(e.message);
     } finally {
@@ -40,6 +46,7 @@ export default function BookDetail({ book, onClose }) {
     }
   };
 
+  // 로봇이 다른 일(예: 복귀)로 이동 중이어도 새 요청은 막아요
   const busy = navStatus === "navigating" || sending;
 
   return (
@@ -142,7 +149,7 @@ export default function BookDetail({ book, onClose }) {
           )}
 
           <div className="px-6 pb-8 pt-2 space-y-2">
-            <NavStatusView status={navStatus} bookId={navBookId} />
+            <NavStatusView status={viewStatus} bookId={navBookId} />
 
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm text-red-600 text-center">
@@ -156,8 +163,11 @@ export default function BookDetail({ book, onClose }) {
               className="w-full bg-primary text-primary-foreground py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {busy ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> 전송 중...</>
-              ) : navStatus === "succeeded" ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />{" "}
+                  {navStatus === "navigating" && !isThisBook ? "로봇이 이동 중이에요" : "전송 중..."}
+                </>
+              ) : viewStatus === "succeeded" ? (
                 <><CheckCircle className="w-4 h-4" /> 다시 안내받기</>
               ) : (
                 <><Navigation className="w-4 h-4" /> 로봇으로 안내받기</>

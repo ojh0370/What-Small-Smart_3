@@ -1,10 +1,16 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import SearchBar from "../components/SearchBar";
 import BookCard from "../components/BookCard";
 import BookDetail from "../components/BookDetail";
+import ContinuePrompt from "../components/ContinuePrompt";
 import { bookService } from "../api/bookService";
+import { useRosbridge } from "../context/RosbridgeContext";
 import { BookOpen, Bot, ShieldAlert } from "lucide-react";
+
+const HOME_ID = "0000"; // 복귀 위치 ID
+// 로봇이 이동에 실패했을 때 오는 상태들 (이때는 도착 화면을 기다리지 않아요)
+const FAIL_STATUSES = ["failed", "canceled", "busy", "not_found", "invalid_request"];
 
 export default function Home() {
   const [query, setQuery] = useState("");
@@ -13,6 +19,12 @@ export default function Home() {
   const [searched, setSearched] = useState(false);
   const [selectedBook, setSelectedBook] = useState(null);
 
+  const { navStatus, navBookId, sendBookRequest, resetNavStatus } = useRosbridge();
+  const [showContinue, setShowContinue] = useState(false); // "계속 이용하시겠습니까?" 화면
+  const [returnError, setReturnError] = useState(""); // 복귀 명령 실패 안내
+  // 방문자가 "로봇으로 안내받기"를 눌러서 도착을 기다리는 책 번호 (없으면 null)
+  const waitingBookId = useRef(null);
+
   const handleSearch = async (q) => {
     setLoading(true);
     setSearched(true);
@@ -20,6 +32,52 @@ export default function Home() {
     const results = await bookService.search(q);
     setResults(results);
     setLoading(false);
+  };
+
+  // 로봇이 도착(succeeded)하면 "계속 이용하시겠습니까?" 화면을 띄워요.
+  // - 방문자가 이 화면에서 요청한 책일 때만 (예전 값이나 다른 사람의 도착에는 반응 X)
+  // - 복귀(0000) 도착일 때는 띄우지 않아요 (무한 반복 방지)
+  useEffect(() => {
+    if (navStatus === "succeeded") {
+      const waiting = waitingBookId.current;
+      if (!waiting || navBookId === HOME_ID) return;
+      if (navBookId && navBookId !== waiting) return;
+      waitingBookId.current = null; // 한 번만 띄우기
+      setShowContinue(true);
+    } else if (FAIL_STATUSES.includes(navStatus)) {
+      waitingBookId.current = null; // 이동 실패 → 도착 기다림 취소
+    }
+  }, [navStatus, navBookId]);
+
+  // 검색 화면(처음 화면)으로 돌아가기
+  // 다음 사람이 바로 쓸 수 있게 검색 결과도 비워요. 결과를 남기고 싶으면 아래 두 줄을 지우세요.
+  const goToSearchScreen = () => {
+    setShowContinue(false);
+    setSelectedBook(null);
+    setResults([]);
+    setSearched(false);
+  };
+
+  // "계속 이용" 버튼 → 검색 화면으로
+  const handleContinue = () => {
+    resetNavStatus();
+    goToSearchScreen();
+  };
+
+  // 복귀 명령 보내기 (실패하면 안내 + 다시 시도 버튼)
+  const sendReturn = () => {
+    try {
+      setReturnError("");
+      sendBookRequest(HOME_ID);
+    } catch (e) {
+      setReturnError(e.message || "복귀 명령을 보내지 못했어요.");
+    }
+  };
+
+  // 15초가 지나면 → 복귀 명령 + 검색 화면으로
+  const handleAutoReturn = () => {
+    sendReturn();
+    goToSearchScreen();
   };
 
   return (
@@ -90,7 +148,37 @@ export default function Home() {
       </main>
 
       {selectedBook && (
-        <BookDetail book={selectedBook} onClose={() => setSelectedBook(null)} />
+        <BookDetail
+          book={selectedBook}
+          onClose={() => setSelectedBook(null)}
+          onGuideRequested={(id) => {
+            waitingBookId.current = id; // 이 책이 도착하면 "계속 이용" 화면을 띄울 준비
+          }}
+        />
+      )}
+
+      {showContinue && (
+        <ContinuePrompt onContinue={handleContinue} onTimeout={handleAutoReturn} />
+      )}
+
+      {returnError && (
+        <div className="fixed top-4 left-1/2 z-[90] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center gap-3 rounded-2xl bg-red-600 px-4 py-3 text-white shadow-xl">
+          <span className="flex-1 text-sm font-semibold">⚠️ {returnError}</span>
+          <button
+            type="button"
+            onClick={sendReturn}
+            className="rounded-lg bg-white/20 px-3 py-1 text-xs font-bold hover:bg-white/30"
+          >
+            다시 시도
+          </button>
+          <button
+            type="button"
+            onClick={() => setReturnError("")}
+            className="text-xs underline"
+          >
+            닫기
+          </button>
+        </div>
       )}
     </div>
   );
