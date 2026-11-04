@@ -31,7 +31,7 @@ export default function Home() {
             <Bot className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-lg font-bold tracking-tight leading-none">먹똑</h1>
+            <h1 className="text-lg font-bold tracking-tight leading-none">라비</h1>
             <p className="text-xs text-primary-foreground/60 mt-0.5">도서관 안내 로봇</p>
           </div>
         </div>

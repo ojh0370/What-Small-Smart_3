@@ -313,17 +313,17 @@ async function startServer() {
     connectRos();
 
     clientSocket.on("message", (data) => {
-      const str = data.toString();
-      try {
+          const str = data.toString();
+          try {
         const parsed = JSON.parse(str);
-        console.log(`[프론트→rosbridge] op=${parsed.op} topic=${parsed.topic} data=${parsed.msg?.data || ""}`);
-      } catch {/* ignore */}
-      
-      if (rosSocket && rosSocket.readyState === WebSocket.OPEN) {
-        rosSocket.send(str);
-      } else if (rosSocket && rosSocket.readyState === WebSocket.CONNECTING) {
-        buffer.push(str);
-      }
+            console.log(`[프론트→rosbridge] op=${parsed.op} topic=${parsed.topic} data=${parsed.msg?.data || ""}`);
+          } catch {/* ignore */}
+
+          if (rosSocket && rosSocket.readyState === WebSocket.OPEN) {
+            rosSocket.send(str);
+          } else if (rosSocket && rosSocket.readyState === WebSocket.CONNECTING) {
+            buffer.push(str);
+          }
     });
 
     clientSocket.on("close", () => {
