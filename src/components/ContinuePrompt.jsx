@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle } from "lucide-react";
 
-const TOTAL_SECONDS = 15; // 자동 복귀까지 기다리는 시간
+const TOTAL_SECONDS = 5; // 자동 복귀까지 기다리는 시간
 
 export default function ContinuePrompt({ onContinue, onTimeout }) {
   const [remaining, setRemaining] = useState(TOTAL_SECONDS);
