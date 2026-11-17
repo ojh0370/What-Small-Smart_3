@@ -17,6 +17,7 @@ const MONGODB_URI = process.env.MONGODB_URI;
 // ── GROQ 설정 ──
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+const GROQ_STT_MODEL = process.env.GROQ_STT_MODEL || "whisper-large-v3-turbo";
 const TRAILING_REQUEST_PATTERN = /\s?(찾아줘|검색해줘|알려줘|보여줘)[.!?~]*$/;
 
 // ── 라즈베리파이(추종자 이탈 감지) 인증 ──
