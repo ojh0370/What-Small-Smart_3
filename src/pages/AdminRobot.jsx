@@ -1,6 +1,6 @@
 
 import { useState } from "react";
-import { useRosbridge } from "../hooks/useRosbridge";
+import { useRosbridge } from "../context/RosbridgeContext";
 
 export default function AdminRobot() {
   const {

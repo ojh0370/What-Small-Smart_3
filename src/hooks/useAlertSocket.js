@@ -36,6 +36,7 @@ export function useAlertSocket() {
       reconnectTimer.current = setTimeout(connect, 3000);
     };
     ws.current.onmessage = (event) => {
+      console.log("[alert] raw", event.data);
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === "follower_alert") {

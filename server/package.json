@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "먹똑 도서 API + rosbridge WebSocket 브릿지 서버",
+  "description": "라비 도서 API + rosbridge WebSocket 브릿지 서버",
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js"

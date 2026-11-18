@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-먹똑 - 로봇 PC ROS2 브리지 노드
+라비 - 로봇 PC ROS2 브리지 노드
 앱(rosbridge WebSocket) <-> Nav2(goto_pose.py) 중간다리
 
 실행 (로봇 PC에서):

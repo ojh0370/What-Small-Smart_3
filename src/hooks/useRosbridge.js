@@ -14,7 +14,7 @@ console.log("[rosbridge] 연결 대상 URL:", ROS_WS_URL, "| VITE_API_BASE_URL:"
 // /app/nav_status 에서 오는 상태 코드 목록
 const VALID_STATUSES = ["idle", "navigating", "succeeded", "failed", "canceled", "busy", "not_found", "invalid_request"];
 
-export function useRosbridge() {
+export function useRosbridgeCore() {
   const ws = useRef(null);
   const reconnectTimer = useRef(null);
   const subscribed = useRef(false);

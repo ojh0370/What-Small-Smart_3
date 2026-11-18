@@ -123,6 +123,7 @@ app.get("/robot-status", async (req, res) => {
 
 // POST /alert — 라즈베리파이(ESP32 초음파 센서)가 보내는 "추종자 이탈" 경고 수신
 app.post("/alert", async (req, res) => {
+  console.log("[/alert] 요청 도착, body keys:", Object.keys(req.body || {}));
   const { distance, api_key } = req.body || {};
 
   if (!PI_API_KEY) {
@@ -130,9 +131,11 @@ app.post("/alert", async (req, res) => {
     return res.status(500).json({ error: "server_not_configured" });
   }
   if (api_key !== PI_API_KEY) {
+    console.warn("⚠️ /alert 인증 실패: api_key 불일치");   // ← 추가
     return res.status(401).json({ error: "unauthorized" });
   }
   if (typeof distance !== "number" || Number.isNaN(distance)) {
+    console.warn("⚠️ /alert distance 형식 오류:", typeof distance, distance);  // ← 추가
     return res.status(400).json({ error: "invalid_distance" });
   }
 
@@ -153,12 +156,21 @@ app.get("/alerts", async (req, res) => {
 });
 
 // POST /extract-keyword (음성 검색 키워드 추출)
-async function extractKeyword(text) {
-  const fallback = text.replace(TRAILING_REQUEST_PATTERN, "").trim();
-  if (!GROQ_API_KEY) return { keyword: fallback, fallback: true };
+app.post("/extract-keyword", async (req, res) => {
+  const { text } = req.body || {};
+  if (!text || typeof text !== "string" || !text.trim()) {
+    return res.status(400).json({ error: "text가 필요합니다." });
+  }
+
+  if (!GROQ_API_KEY) {
+    const fallback = text.replace(TRAILING_REQUEST_PATTERN, "").trim();
+    console.warn("GROQ_API_KEY 미설정 — 정규식 폴백만 사용");
+    return res.json({ keyword: fallback, fallback: true });
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
+
   try {
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -185,89 +197,23 @@ async function extractKeyword(text) {
       signal: controller.signal,
     });
     clearTimeout(timer);
-    if (!groqRes.ok) throw new Error(`Groq API 응답 오류: ${groqRes.status}`);
+
+    if (!groqRes.ok) {
+      throw new Error(`Groq API 응답 오류: ${groqRes.status}`);
+    }
 
     const data = await groqRes.json();
     const keyword = data.choices?.[0]?.message?.content?.trim();
+
     if (!keyword) throw new Error("빈 응답");
-    return { keyword: keyword.replace(/^["'“”]|["'“”.]$/g, "").trim() };
+
+    const cleaned = keyword.replace(/^["'“”]|["'“”.]$/g, "").trim();
+    res.json({ keyword: cleaned });
   } catch (err) {
     clearTimeout(timer);
     console.warn("Groq 키워드 추출 실패, 정규식 폴백 사용:", err.message);
-    return { keyword: fallback, fallback: true };
-  }
-}
-
-// POST /extract-keyword (텍스트 입력용 — 기존 동작 유지)
-app.post("/extract-keyword", async (req, res) => {
-  const { text } = req.body || {};
-  if (!text || typeof text !== "string" || !text.trim()) {
-    return res.status(400).json({ error: "text가 필요합니다." });
-  }
-  res.json(await extractKeyword(text));
-});
-
-// ── 음성(오디오) → 텍스트(Whisper) ──
-// Whisper는 소리가 거의 없을 때 "시청해 주셔서 감사합니다" 같은 가짜 문장을 만들어내는 경우가 있어 걸러낸다.
-const WHISPER_GHOST = /^(감사합니다|시청해\s*주셔서\s*감사합니다|구독과?\s*좋아요.*|자막\s*제공.*|MBC\s*뉴스.*)[.!\s]*$/;
-
-function extFromMime(mime = "") {
-  if (mime.includes("mp4")) return "mp4";
-  if (mime.includes("ogg")) return "ogg";
-  if (mime.includes("wav")) return "wav";
-  return "webm";
-}
-
-// POST /transcribe  (body: 오디오 바이너리, Content-Type: audio/webm 등)
-//   → { text: "해리포터 찾아줘", keyword: "해리포터" }
-app.post("/transcribe", express.raw({ type: () => true, limit: "5mb" }), async (req, res) => {
-  if (!GROQ_API_KEY) return res.status(503).json({ error: "GROQ_API_KEY 미설정" });
-  if (!Buffer.isBuffer(req.body) || req.body.length < 1000) {
-    return res.status(400).json({ error: "오디오가 비어 있습니다." });
-  }
-
-  const mime = req.headers["content-type"] || "audio/webm";
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
-
-  try {
-    const form = new FormData();
-    form.append("file", new Blob([req.body], { type: mime }), `voice.${extFromMime(mime)}`);
-    form.append("model", GROQ_STT_MODEL);
-    form.append("language", "ko");
-    form.append("temperature", "0");
-    form.append("response_format", "verbose_json"); // 구간별 신뢰도(no_speech_prob 등)를 받기 위해
-    form.append("prompt", "도서관에서 책 제목이나 저자를 말합니다.");
-
-    const sttRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${GROQ_API_KEY}` }, // Content-Type은 FormData가 자동 설정
-      body: form,
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!sttRes.ok) throw new Error(`Groq STT 오류: ${sttRes.status}`);
-
-    const data = await sttRes.json();
-
-    // 말소리가 아닐 가능성이 높은 구간 제거
-    const kept = (data.segments || []).filter(
-      (s) => !(s.no_speech_prob > 0.6 && s.avg_logprob < -0.8) && s.avg_logprob > -1.3
-    );
-    const text = (data.segments ? kept.map((s) => s.text).join(" ") : data.text || "")
-      .replace(/[,.!?\n]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    console.log(`[STT] "${text}"`);
-    if (!text || WHISPER_GHOST.test(text)) return res.json({ text: "", keyword: "" });
-
-    const { keyword } = await extractKeyword(text);
-    res.json({ text, keyword });
-  } catch (err) {
-    clearTimeout(timer);
-    console.warn("STT 실패:", err.message);
-    res.status(502).json({ error: "음성 인식 실패" });
+    const fallback = text.replace(TRAILING_REQUEST_PATTERN, "").trim();
+    res.json({ keyword: fallback, fallback: true });
   }
 });
 

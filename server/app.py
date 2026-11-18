@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-먹똑 - 로봇 PC Flask 서버
+라비 - 로봇 PC Flask 서버
 앱 <-> Nav2(goto_pose.py) 중간다리
 
 실행:
